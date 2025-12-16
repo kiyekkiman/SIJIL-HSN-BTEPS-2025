@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import Header from './components/Header';
 import SearchForm from './components/SearchForm';
 import ResultModal from './components/ResultModal';
-import { fetchStudentData, normalizeString } from './services/sheetService';
+import { searchStudent } from './services/sheetService';
 import { SearchFormData, SearchStatus, StudentRecord } from './types';
 
 const Background: React.FC = () => {
@@ -22,37 +22,10 @@ const Background: React.FC = () => {
 };
 
 const App: React.FC = () => {
-  const [data, setData] = useState<StudentRecord[]>([]);
-  const [loadingData, setLoadingData] = useState(true);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [searchStatus, setSearchStatus] = useState<SearchStatus>(SearchStatus.IDLE);
   const [foundStudent, setFoundStudent] = useState<StudentRecord | null>(null);
 
-  // Load data on mount
-  useEffect(() => {
-    const initData = async () => {
-      try {
-        const students = await fetchStudentData();
-        setData(students);
-        
-        if (students.length === 0) {
-          console.warn("Data successfully fetched but 0 records found.");
-        } else {
-          console.log(`Loaded ${students.length} records.`);
-          if(students.length > 0) console.log("First record sample:", students[0]);
-        }
-      } catch (error) {
-        console.error("Failed to load sheet data:", error);
-        setErrorMsg("Gagal memuat turun data. Sila pastikan Google Sheet telah 'Published to Web'.");
-      } finally {
-        setLoadingData(false);
-      }
-    };
-
-    initData();
-  }, []);
-
-  const handleSearch = (formData: SearchFormData) => {
+  const handleSearch = async (formData: SearchFormData) => {
     // 1. Basic Validation
     if (!formData.name.trim() || !formData.icNumber.trim() || formData.icNumber.length < 4) {
       setSearchStatus(SearchStatus.INVALID_INPUT);
@@ -61,19 +34,9 @@ const App: React.FC = () => {
 
     setSearchStatus(SearchStatus.LOADING);
 
-    // Simulate a small delay for UX purposes
-    setTimeout(() => {
-      const normalizedInputName = normalizeString(formData.name);
-      const normalizedInputIC = normalizeString(formData.icNumber);
-
-      console.log(`Searching for: Name[${normalizedInputName}] IC[${normalizedInputIC}]`);
-
-      const match = data.find(student => {
-        const studentIC = normalizeString(student.icNumber);
-        const studentName = normalizeString(student.name);
-
-        return studentIC === normalizedInputIC && studentName === normalizedInputName;
-      });
+    try {
+      // Securely search on the server
+      const match = await searchStudent(formData.name, formData.icNumber);
 
       if (match) {
         console.log("Match found:", match);
@@ -92,7 +55,10 @@ const App: React.FC = () => {
         console.log("No match found.");
         setSearchStatus(SearchStatus.NOT_FOUND);
       }
-    }, 800);
+    } catch (error) {
+      console.error("Error during search:", error);
+      setSearchStatus(SearchStatus.ERROR);
+    }
   };
 
   const closeModal = () => {
@@ -108,19 +74,7 @@ const App: React.FC = () => {
 
         <main className="flex-grow container mx-auto px-4 py-8 sm:py-12 flex items-center justify-center">
           <div className="w-full max-w-2xl">
-            {loadingData ? (
-               <div className="text-center py-12 bg-[#ebf8ff]/80 backdrop-blur-md rounded-2xl shadow-xl p-8 border border-white/50">
-                 <div className="animate-spin rounded-full h-12 w-12 border-4 border-orange-500 border-t-transparent mx-auto mb-4"></div>
-                 <p className="text-gray-700 font-medium animate-pulse">Menghubungi pangkalan data... 📡</p>
-               </div>
-            ) : errorMsg ? (
-              <div className="bg-red-50/90 backdrop-blur-sm border border-red-200 rounded-xl p-6 text-center shadow-lg">
-                <p className="text-red-600 font-medium">{errorMsg}</p>
-                <p className="text-sm text-red-500 mt-2">Sila semak konsol pelayar (F12) untuk maklumat lanjut.</p>
-              </div>
-            ) : (
-               <SearchForm onSearch={handleSearch} isLoading={searchStatus === SearchStatus.LOADING} />
-            )}
+             <SearchForm onSearch={handleSearch} isLoading={searchStatus === SearchStatus.LOADING} />
           </div>
         </main>
 
