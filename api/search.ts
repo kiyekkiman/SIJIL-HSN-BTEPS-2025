@@ -2,7 +2,8 @@ import Papa from 'papaparse';
 
 // Constants duplicated here to ensure serverless function is self-contained
 const SPREADSHEET_ID = '1kc_rK64ISlAj9XQ6lm_IfEty_MxbO6RklYAVL5XMVxw';
-const CSV_URL = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv`;
+const SHEET_NAME = 'COMPILE';
+const CSV_URL = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${SHEET_NAME}`;
 
 const KEYWORDS = {
   NAME: ['NAMA', 'NAME', 'PARTICIPANT', 'PELAJAR'],
@@ -16,6 +17,12 @@ const normalizeString = (str: string): string => {
 };
 
 export default async function handler(req: any, res: any) {
+  // 1. Tell the browser/Vercel NOT to cache this API response
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  res.setHeader('Surrogate-Control', 'no-store');
+
   try {
     const { name, ic } = req.query;
 
@@ -23,18 +30,29 @@ export default async function handler(req: any, res: any) {
       return res.status(400).json({ error: 'Missing parameters' });
     }
 
-    // 1. Fetch CSV securely on the server
-    const response = await fetch(CSV_URL);
+    // 2. Fetch CSV securely from Google
+    // Add a timestamp parameter to the URL to bypass Google's internal caching
+    const timestamp = Date.now();
+    const uniqueUrl = `${CSV_URL}&_t=${timestamp}`;
+
+    const response = await fetch(uniqueUrl, {
+      cache: 'no-store',
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache'
+      }
+    });
+
     if (!response.ok) {
       throw new Error(`Failed to fetch sheet: ${response.statusText}`);
     }
     const csvText = await response.text();
 
     if (csvText.trim().startsWith('<!DOCTYPE html') || csvText.includes('<html')) {
-        return res.status(500).json({ error: 'Sheet not published to web' });
+        return res.status(500).json({ error: 'Sheet not published to web or ID is invalid' });
     }
 
-    // 2. Parse CSV
+    // 3. Parse CSV
     const parseResult = Papa.parse(csvText, {
         header: false,
         skipEmptyLines: true
@@ -45,7 +63,7 @@ export default async function handler(req: any, res: any) {
         return res.status(200).json({ found: false });
     }
 
-    // 3. Detect Headers (Logic from previous client-side service)
+    // 4. Detect Headers (Logic from previous client-side service)
     let nameIndex = -1;
     let icIndex = -1;
     let headerRowIndex = -1;
@@ -70,7 +88,7 @@ export default async function handler(req: any, res: any) {
         headerRowIndex = 0;
     }
 
-    // 4. Search for the specific student
+    // 5. Search for the specific student
     const normalizedInputName = normalizeString(name as string);
     const normalizedInputIC = normalizeString(ic as string);
 
